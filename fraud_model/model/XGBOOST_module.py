@@ -32,8 +32,9 @@ def _objective(trial, X, y):
     aucpr_scores, ks_scores = [], []
 
     for fold, (train_idx, val_idx) in enumerate(skf.split(X, y)):
-        X_tr,  X_val = X[train_idx], X[val_idx]
-        y_tr,  y_val = y[train_idx], y[val_idx]
+        X_tr,  X_val = X.iloc[train_idx], X.iloc[val_idx]
+        y_tr,  y_val = y[train_idx], y[val_idx]          # ← numpy, so plain indexing works
+
 
         model = xgb.XGBClassifier(**params, early_stopping_rounds=50, verbosity=0)
         model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
@@ -57,7 +58,7 @@ def _objective(trial, X, y):
 def run_fraud_tuning(
     X_train,                     # training features (numpy array) — holdout excluded externally
     y_train,                     # training labels   (numpy array) — holdout excluded externally
-    n_trials     = 100,          # number of Optuna trials
+    n_trials     = 4,          # number of Optuna trials
     test_size    = 0.2,          # fraction of X_train held out for internal evaluation
     random_state = 42,
     study_name   = "xgb_fraud_scoring"
@@ -87,6 +88,10 @@ def run_fraud_tuning(
             - 'test_aucpr'  : AUC-PR on internal test split
             - 'test_ks'     : KS statistic on internal test split
     """
+
+    # ── FIX: convert y to numpy so train_test_split outputs are index-free ─
+    if hasattr(y_train, "values"):
+        y_train = y_train.values
 
     # ── 1. Internal train / test split (for tuning evaluation only) ───────
     X_tr, X_te, y_tr, y_te = train_test_split(
