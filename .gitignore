@@ -1,2 +1,25 @@
-data_file/
+# Python
 __pycache__/
+*.pyc
+*.pyo
+.env
+*.egg-info/
+
+# Data files (too large for GitHub)
+data/
+Fraud dataset/
+*.parquet
+*.csv
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Claude
+.claude/
