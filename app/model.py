@@ -1,5 +1,6 @@
 import joblib
 import os
+import math
 import pandas as pd
 import shap
 
@@ -18,19 +19,17 @@ def predict(features):
     # DataFrame preserves column names — safer than numpy array (order-independent)
     input_df = pd.DataFrame([features.model_dump()])
 
-    # Fraud score (probability of class 1 = fraud)
-    fraud_score = float(model.predict_proba(input_df)[0][1])
-
-    # SHAP values for this single transaction
-    # Positive value = that feature pushed the score toward fraud
-    # Negative value = that feature pushed the score toward legitimate
+    # Single tree traversal — fraud_score derived from SHAP values directly
+    # (avoids a second traversal via predict_proba)
+    # log-odds = base_value + sum(shap_values); sigmoid converts to probability
     shap_values = explainer(input_df)
+    log_odds = float(shap_values.base_values[0]) + float(shap_values.values[0].sum())
+    fraud_score = 1.0 / (1.0 + math.exp(-log_odds))
+
     shap_scores = {
         feature: round(float(value), 4)
         for feature, value in zip(input_df.columns, shap_values.values[0])
     }
-
-    # Sort by absolute contribution so the biggest driver comes first
     shap_scores = dict(
         sorted(shap_scores.items(), key=lambda x: abs(x[1]), reverse=True)
     )
