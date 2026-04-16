@@ -133,6 +133,10 @@ If the business later needs to tighten decisioning specifically on TRANSFER tran
 
 Before investing in N segment models, the combined model's SHAP feature importance provides a practical pre-check.
 
+![SHAP Feature Importance](model/shap_bar.png)
+
+Each bar shows how much a feature moves the fraud score on average across all transactions — larger bar means the model relies on it more. The account balance before the transaction (`oldbalanceOrg`) is the dominant driver at ~4.4, nearly double the transaction amount at ~2.3. The two transaction type flags (`type_CASH_OUT` and `type_TRANSFER`) sit at the bottom with bars around 0.35–0.4 — roughly ten times smaller than the top feature. The model is almost entirely driven by balance and amount signals; knowing whether the transaction was labelled a cash-out or a transfer adds very little on top of that.
+
 The SHAP bar chart for the single model shows `type_CASH_OUT` and `type_TRANSFER` with mean absolute SHAP values of approximately 0.4 and 0.35 respectively — the two weakest features in the model, roughly 10 times smaller than `oldbalanceOrg`. This is a direct signal that the transaction type label adds minimal independent information once balance and amount features are already present.
 
 The general rule:
