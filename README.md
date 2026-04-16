@@ -119,13 +119,42 @@ These tables show how well the model concentrates fraud into the high-score buck
 
 The TRANSFER segment model is the strongest individually — 98.44% of fraud cases and 99.78% of fraud volume land in the top score band, with an AUC-PR of 0.9952. TRANSFER fraud is structurally clean: large amounts, near-zero originating balance after transfer, and the destination account rarely had a prior balance. The signal is strong enough that a dedicated model separates it almost perfectly.
 
-The CASH_OUT segment model is weaker — AUC-PR of 0.6527 and only 45.52% of fraud in the top band. This is not a modelling failure; it reflects the nature of the data. CASH_OUT fraud shares many characteristics with high-value legitimate cash withdrawals. The model struggles to find a clean boundary.
+The CASH_OUT segment model is weaker — AUC-PR of 0.6527 and only 45.52% of fraud in the top band. This is not a modelling failure; it reflects the nature of the data. CASH_OUT fraud shares many characteristics with high-value legitimate cash withdrawals. The model struggles to find a clean boundary regardless of approach — the features available do not cleanly separate CASH_OUT fraud from legitimate CASH_OUT transactions. Fixing this would require additional signals not present in this dataset: transaction velocity, device fingerprinting, or customer behavioural history.
 
 The full single model, despite handling both transaction types together, scores 84.17% of fraud in the top band with a KS of 0.9839. It benefits from a larger training set and learns patterns across both types simultaneously. Crucially, it outperforms the CASH_OUT segment model on every metric.
 
 **The practical choice is the single full model.** It is simpler to deploy (one model, one API call), easier to maintain (one retraining pipeline), and performs better than the CASH_OUT segment model. The TRANSFER segment model does edge it out on that specific segment, but the operational cost of maintaining two separate models with separate holdouts, separate retraining schedules, and routing logic at the API level is not justified by the marginal gain — especially when the deployed model already concentrates 98.40% of fraud volume in the top score band.
 
 If the business later needs to tighten decisioning specifically on TRANSFER transactions, the segment model approach remains a viable upgrade path.
+
+---
+
+## Using SHAP to decide whether segment models are worth building
+
+Before investing in N segment models, the combined model's SHAP feature importance provides a practical pre-check.
+
+The SHAP bar chart for the single model shows `type_CASH_OUT` and `type_TRANSFER` with mean absolute SHAP values of approximately 0.4 and 0.35 respectively — the two weakest features in the model, roughly 10 times smaller than `oldbalanceOrg`. This is a direct signal that the transaction type label adds minimal independent information once balance and amount features are already present.
+
+The general rule:
+
+| SHAP importance of the categorical split feature | Interpretation |
+|---|---|
+| High — comparable to top features | The model treats the categories very differently. Segment models are likely to improve performance — proceed. |
+| Low — well below the top features | The type label is not doing meaningful work. Segments may not behave differently enough to justify splitting. Test before committing. |
+| Near zero | The model treats all categories almost identically. Segmentation will only reduce training data with no benefit. |
+
+In this project, both type flags sit firmly in the low-importance band. This correctly predicted that the CASH_OUT segment model would underperform — the combined model already extracts most of the available signal from balance and amount features, making a dedicated CASH_OUT model redundant and data-starved.
+
+The TRANSFER segment model is the exception that proves the rule. Even though the `type_TRANSFER` flag has low SHAP importance, the fraud pattern within TRANSFER transactions is so structurally clean that isolating it produces a near-perfect model (AUC-PR 0.9952). The type label being unimportant told us it would not help much — and for CASH_OUT it did not. For TRANSFER, the within-category signal was strong enough to overcome the smaller training set. The SHAP pre-check narrows down where to focus experimentation; it does not replace it.
+
+**Practical workflow for any future segmentation decision:**
+
+1. Train a single combined model first.
+2. Run SHAP on the combined model and inspect the importance of the feature you are considering splitting by.
+3. If importance is low, the burden of proof is on the segment model — run the experiment but expect limited gains.
+4. If importance is high, segmentation is likely worthwhile — the model itself is telling you the categories behave differently.
+
+This avoids building and maintaining multiple models speculatively and grounds the decision in what the data is actually showing.
 
 ---
 
