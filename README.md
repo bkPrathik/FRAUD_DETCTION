@@ -4,6 +4,8 @@ A real-time fraud scoring service built on XGBoost, served via FastAPI. The mode
 
 Fraud types covered: CASH_OUT and TRANSFER transactions.
 
+Trained on the [PaySim synthetic financial dataset](https://www.kaggle.com/datasets/ealaxi/paysim1) — a publicly available simulation of mobile money transactions, widely used as a benchmark for fraud detection modelling. The dataset is not included in this repo; download it from Kaggle if you want to retrain.
+
 ---
 
 ## What This Is
@@ -167,4 +169,4 @@ python -m uvicorn app.main:app --reload
 }
 ```
 
-Interactive docs available at `http://localhost:8000/docs`.
+Interactive docs (Swagger UI) are available at `http://localhost:8000/docs` when running locally. Once deployed to a server, replace `localhost` with the server's public IP or domain — e.g. `http://54.x.x.x:8000/docs`.
