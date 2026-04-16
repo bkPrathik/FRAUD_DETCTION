@@ -162,6 +162,41 @@ This avoids building and maintaining multiple models speculatively and grounds t
 
 ---
 
+## Threshold Analysis — Value-Based Decisioning
+
+Standard precision and recall count transactions. A ₹1 fraud and a ₹10,000,000 fraud both count as "1 case." This is wrong for financial fraud because the two are not equivalent — missing a ₹10M fraud costs ₹10M, while blocking a legitimate ₹500 transaction costs a small amount of friction. A model that catches 90% of fraud cases but misses all the high-value ones looks good on paper and fails in practice.
+
+**The correct question is not "how many fraud transactions did we catch?" but "how much fraud value did we catch, and at what cost to legitimate business?"**
+
+At any given score threshold, the four metrics that matter are:
+
+| Metric | Business question it answers |
+|---|---|
+| Fraud value caught (₹) | How much fraud money did we stop? |
+| % of total fraud value caught | What fraction of all fraud are we protecting against? |
+| Legitimate value blocked (₹) | What is the cost — how much genuine business are we disrupting? |
+| Value precision | Of every ₹1 we block, what fraction is actual fraud vs innocent customer? |
+
+The threshold decision is choosing where you sit on the tradeoff between the last two.
+
+![Threshold Analysis](model/threshold_analysis.png)
+
+### Recommended tiered approach
+
+Rather than a single hard cutoff, the practical approach in production is three bands:
+
+| Band | Score Range | Action |
+|---|---|---|
+| Auto-block | ≥ 0.95 | Block immediately — near-certain fraud, minimal legitimate disruption |
+| Review queue | 0.70 – 0.95 | Send to manual review — moderate confidence, human decision |
+| Auto-approve | < 0.70 | Approve — low fraud signal |
+
+The exact thresholds are a business decision based on risk appetite, not a modelling decision. The data scientist's job is to present the value-based tradeoff clearly so the business can make an informed choice.
+
+**On model training metrics:** Standard AUC-PR treats every transaction equally regardless of amount. If you want a single training metric that naturally balances both volume and count, use amount-weighted AUC-PR: `average_precision_score(y, scores, sample_weight=amount)`. This penalises the model more heavily for missing high-value fraud, which is exactly the business objective.
+
+---
+
 ## API
 
 ### Run locally
@@ -196,10 +231,22 @@ python -m uvicorn app.main:app --reload
 
 ```json
 {
-  "prediction": 1,
-  "fraud_probability": 0.9997,
-  "model_version": "v1.0.0"
+  "fraud_score": 0.9997,
+  "model_version": "v1.0.0",
+  "shap_scores": {
+    "newbalanceDest": 5.1315,
+    "oldbalanceOrg":  3.6185,
+    "oldbalanceDest": 1.1592,
+    "newbalanceOrig": 0.3258,
+    "amount":        -0.9478,
+    "type_TRANSFER": -0.4311,
+    "type_CASH_OUT": -0.2332
+  }
 }
 ```
+
+`fraud_score` is the fraud probability (0–1). Use your own threshold to decide whether to block, review, or approve.
+
+`shap_scores` explains why — each feature's contribution to the score. Positive = pushed toward fraud. Negative = pushed toward legitimate. Sorted largest contribution first.
 
 Interactive docs (Swagger UI) are available at `http://localhost:8000/docs` when running locally. Once deployed to a server, replace `localhost` with the server's public IP or domain — e.g. `http://54.x.x.x:8000/docs`.
