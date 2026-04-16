@@ -8,7 +8,12 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Fraud Detection API",
-    description="Binary classification: 0 = legit, 1 = fraud",
+    description=(
+        "Returns a fraud score (0-1) for each transaction. "
+        "Higher score = higher fraud risk. "
+        "Also returns per-feature SHAP contributions: "
+        "positive = pushed toward fraud, negative = pushed toward legitimate."
+    ),
     version="1.0.0"
 )
 
@@ -21,12 +26,12 @@ def health_check():
 def predict(transaction: TransactionInput):
     try:
         logger.info(f"Received prediction request: {transaction.model_dump()}")
-        prediction, probability = model_module.predict(transaction)
-        logger.info(f"Prediction result: {prediction}, prob: {probability:.4f}")
+        fraud_score, shap_scores = model_module.predict(transaction)
+        logger.info(f"Fraud score: {fraud_score:.4f} | Top driver: {next(iter(shap_scores))}")
         return PredictionOutput(
-            prediction=prediction,
-            fraud_probability=probability,
-            model_version=model_module.MODEL_VERSION
+            fraud_score=fraud_score,
+            model_version=model_module.MODEL_VERSION,
+            shap_scores=shap_scores
         )
     except Exception as e:
         logger.error(f"Prediction failed: {str(e)}")
