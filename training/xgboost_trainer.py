@@ -64,15 +64,13 @@ def run_fraud_tuning(
 ):
     """
     Runs Optuna hyperparameter tuning for XGBoost fraud scoring model.
-    Optimises for standard AUC-PR. Amount-weighted AUC-PR is computed on the
-    internal test split and reported as a secondary metric.
 
     NOTE: Holdout data must be separated BEFORE calling this function.
     Only pass the training portion here — this function has no knowledge
     of holdout and cannot leak it.
 
     Args:
-        X_train      : Feature matrix (pandas DataFrame), holdout already removed
+        X_train      : Feature matrix (numpy array), holdout already removed
         y_train      : Label vector   (numpy array), holdout already removed
         n_trials     : Number of Optuna trials (default 4)
         test_size    : Fraction of X_train used for internal test eval (default 0.2)
@@ -81,29 +79,22 @@ def run_fraud_tuning(
 
     Returns:
         dict with keys:
-            - 'model'           : final XGBClassifier trained on full X_train
-            - 'study'           : Optuna study object
-            - 'best_params'     : best hyperparameters found
-            - 'cv_aucpr'        : mean AUC-PR across CV folds (best trial)
-            - 'cv_ks'           : mean KS statistic across CV folds (best trial)
-            - 'test_aucpr'      : AUC-PR on internal test split
-            - 'test_aucpr_wtd'  : amount-weighted AUC-PR on internal test split (secondary)
-            - 'test_ks'         : KS statistic on internal test split
+            - 'model'       : final XGBClassifier trained on full X_train
+            - 'study'       : Optuna study object
+            - 'best_params' : best hyperparameters found
+            - 'cv_aucpr'    : mean AUC-PR across CV folds (best trial)
+            - 'cv_ks'       : mean KS statistic across CV folds (best trial)
+            - 'test_aucpr'  : AUC-PR on internal test split
+            - 'test_ks'     : KS statistic on internal test split
     """
 
     # ── FIX: convert y to numpy so train_test_split outputs are index-free ─
     if hasattr(y_train, "values"):
         y_train = y_train.values
 
-    # ── Extract transaction amounts for secondary reporting metric ─────────
-    if hasattr(X_train, "columns") and "amount" in X_train.columns:
-        amounts = X_train["amount"].values
-    else:
-        amounts = np.ones(len(y_train))
-
     # ── 1. Internal train / test split (for tuning evaluation only) ───────
-    X_tr, X_te, y_tr, y_te, amounts_tr, amounts_te = train_test_split(
-        X_train, y_train, amounts,
+    X_tr, X_te, y_tr, y_te = train_test_split(
+        X_train, y_train,
         test_size    = test_size,
         stratify     = y_train,
         random_state = random_state
@@ -136,10 +127,9 @@ def run_fraud_tuning(
     )
     eval_model.fit(X_tr, y_tr)
 
-    test_probs      = eval_model.predict_proba(X_te)[:, 1]
-    test_aucpr      = average_precision_score(y_te, test_probs)
-    test_aucpr_wtd  = average_precision_score(y_te, test_probs, sample_weight=amounts_te)
-    test_ks, _      = ks_2samp(test_probs[y_te == 1], test_probs[y_te == 0])
+    test_probs  = eval_model.predict_proba(X_te)[:, 1]
+    test_aucpr  = average_precision_score(y_te, test_probs)
+    test_ks, _  = ks_2samp(test_probs[y_te == 1], test_probs[y_te == 0])
 
     # ── 4. Train final model on full X_train (no data left out) ──────────
     final_model = xgb.XGBClassifier(
@@ -155,7 +145,6 @@ def run_fraud_tuning(
     print(f"  CV   AUC-PR  (best trial) : {study.best_trial.value:.4f}")
     print(f"  CV   KS Stat (best trial) : {study.best_trial.user_attrs['ks_statistic']:.4f}")
     print(f"  Internal Test AUC-PR      : {test_aucpr:.4f}")
-    print(f"  Internal Test Wtd AUC-PR  : {test_aucpr_wtd:.4f}  ← amount-weighted (secondary)")
     print(f"  Internal Test KS Stat     : {test_ks:.4f}")
     print(f"  Best Params               : {best_params}")
     print("=" * 50)
@@ -167,9 +156,8 @@ def run_fraud_tuning(
         "model":          final_model,
         "study":          study,
         "best_params":    best_params,
-        "cv_aucpr":       study.best_trial.value,
-        "cv_ks":          study.best_trial.user_attrs["ks_statistic"],
-        "test_aucpr":     test_aucpr,
-        "test_aucpr_wtd": test_aucpr_wtd,
-        "test_ks":        test_ks,
+        "cv_aucpr":    study.best_trial.value,
+        "cv_ks":       study.best_trial.user_attrs["ks_statistic"],
+        "test_aucpr":  test_aucpr,
+        "test_ks":     test_ks,
     }

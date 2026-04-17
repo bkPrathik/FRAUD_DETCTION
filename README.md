@@ -48,7 +48,7 @@ Two approaches were trained and compared:
 
 **Approach 2 — Segment models:** Two separate XGBoost models, one for CASH_OUT and one for TRANSFER, each trained only on their respective transaction type.
 
-Both approaches used Optuna for hyperparameter tuning with 5-fold stratified cross-validation, optimising for **AUC-PR** (area under precision-recall curve). Amount-weighted AUC-PR is computed on the internal test split and reported as a secondary metric. KS statistic was also tracked as a secondary metric.
+Both approaches used Optuna for hyperparameter tuning with 5-fold stratified cross-validation, optimising for **AUC-PR** (area under precision-recall curve). KS statistic was tracked as a secondary metric.
 
 **Why AUC-PR over AUC-ROC:** The dataset is heavily imbalanced (fraud is rare). AUC-ROC is misleading in this case because it includes true negatives — a model that never predicts fraud can still score well. AUC-PR focuses only on the fraud class and is a stricter, more meaningful metric here.
 
@@ -193,7 +193,7 @@ Rather than a single hard cutoff, the practical approach in production is three 
 
 The exact thresholds are a business decision based on risk appetite, not a modelling decision. The data scientist's job is to present the value-based tradeoff clearly so the business can make an informed choice.
 
-**On model training metrics:** The model trains on standard AUC-PR, which treats every transaction equally regardless of amount. Using amount-weighted AUC-PR as the training objective risks overfitting hyperparameters to the small cluster of very high-value fraud cases and biases `scale_pos_weight` away from the broader fraud distribution. Instead, amount-weighted AUC-PR — `average_precision_score(y, scores, sample_weight=amount)` — is computed on the internal test split and reported as a secondary metric, and the full value-based tradeoff is explored in the threshold analysis.
+**On model training metrics:** Standard AUC-PR was used over amount-weighted AUC-PR. Weighting by transaction amount would bias every hyperparameter decision — depth, regularisation, `scale_pos_weight` — toward the small cluster of very high-value transactions, risking those being over-represented as fraud. Standard AUC-PR optimises across the full fraud distribution. The value-based perspective is covered separately in the threshold analysis.
 
 ---
 
