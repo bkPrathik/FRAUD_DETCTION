@@ -17,6 +17,9 @@ Fraud dataset/
 # macOS
 .DS_Store
 
+# Model files
+model/*.json
+
 # IDE
 .vscode/
 .idea/
