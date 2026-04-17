@@ -48,7 +48,7 @@ Two approaches were trained and compared:
 
 **Approach 2 — Segment models:** Two separate XGBoost models, one for CASH_OUT and one for TRANSFER, each trained only on their respective transaction type.
 
-Both approaches used Optuna for hyperparameter tuning with 5-fold stratified cross-validation, optimising for AUC-PR (area under precision-recall curve). KS statistic was tracked as a secondary metric.
+Both approaches used Optuna for hyperparameter tuning with 5-fold stratified cross-validation, optimising for **amount-weighted AUC-PR** — each transaction is weighted by its dollar amount so the objective penalises missing high-value fraud more heavily than missing low-value fraud. KS statistic was tracked as a secondary metric.
 
 **Why AUC-PR over AUC-ROC:** The dataset is heavily imbalanced (fraud is rare). AUC-ROC is misleading in this case because it includes true negatives — a model that never predicts fraud can still score well. AUC-PR focuses only on the fraud class and is a stricter, more meaningful metric here.
 
@@ -193,7 +193,7 @@ Rather than a single hard cutoff, the practical approach in production is three 
 
 The exact thresholds are a business decision based on risk appetite, not a modelling decision. The data scientist's job is to present the value-based tradeoff clearly so the business can make an informed choice.
 
-**On model training metrics:** Standard AUC-PR treats every transaction equally regardless of amount. If you want a single training metric that naturally balances both volume and count, use amount-weighted AUC-PR: `average_precision_score(y, scores, sample_weight=amount)`. This penalises the model more heavily for missing high-value fraud, which is exactly the business objective.
+**On model training metrics:** Standard AUC-PR treats every transaction equally regardless of amount. This model trains on **amount-weighted AUC-PR**: `average_precision_score(y, scores, sample_weight=amount)`, which penalises the model more heavily for missing high-value fraud — exactly the business objective.
 
 ---
 
