@@ -9,6 +9,11 @@ MODEL_PATH = os.path.join(BASE_DIR, "model", "XGBOOST_FULL.joblib")
 MODEL_VERSION = "v1.0.0"
 
 # Load ONCE at startup, not on every request (critical for performance)
+if not os.path.exists(MODEL_PATH):
+    raise FileNotFoundError(
+        f"Model file not found at {MODEL_PATH}. "
+        "Copy XGBOOST_FULL.joblib into the model/ directory before starting the API."
+    )
 _loaded = joblib.load(MODEL_PATH)
 model = _loaded['model'] if isinstance(_loaded, dict) else _loaded
 

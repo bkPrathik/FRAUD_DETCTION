@@ -19,6 +19,7 @@ Fraud dataset/
 
 # Model files
 model/*.json
+model/*.joblib
 
 # IDE
 .vscode/
