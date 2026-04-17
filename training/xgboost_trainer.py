@@ -9,7 +9,7 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 
 # ── Inner objective (not called directly by user) ─────────────────────────
-def _objective(trial, X, y, amounts):
+def _objective(trial, X, y):
     params = {
         "objective":        "binary:logistic",
         "eval_metric":      "aucpr",
@@ -32,15 +32,14 @@ def _objective(trial, X, y, amounts):
     aucpr_scores, ks_scores = [], []
 
     for fold, (train_idx, val_idx) in enumerate(skf.split(X, y)):
-        X_tr,  X_val   = X.iloc[train_idx], X.iloc[val_idx]
-        y_tr,  y_val   = y[train_idx], y[val_idx]
-        amounts_val    = amounts[val_idx]
+        X_tr,  X_val = X.iloc[train_idx], X.iloc[val_idx]
+        y_tr,  y_val = y[train_idx], y[val_idx]
 
         model = xgb.XGBClassifier(**params, early_stopping_rounds=50, verbosity=0)
         model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
 
         probs      = model.predict_proba(X_val)[:, 1]
-        aucpr      = average_precision_score(y_val, probs, sample_weight=amounts_val)
+        aucpr      = average_precision_score(y_val, probs)
         aucpr_scores.append(aucpr)
 
         ks_stat, _ = ks_2samp(probs[y_val == 1], probs[y_val == 0])
@@ -65,16 +64,15 @@ def run_fraud_tuning(
 ):
     """
     Runs Optuna hyperparameter tuning for XGBoost fraud scoring model.
-    Optimises for amount-weighted AUC-PR — transactions are weighted by dollar
-    amount so the objective penalises missing high-value fraud more heavily.
+    Optimises for standard AUC-PR. Amount-weighted AUC-PR is computed on the
+    internal test split and reported as a secondary metric.
 
     NOTE: Holdout data must be separated BEFORE calling this function.
     Only pass the training portion here — this function has no knowledge
     of holdout and cannot leak it.
 
     Args:
-        X_train      : Feature matrix (pandas DataFrame), holdout already removed.
-                       Must contain an 'amount' column for weighted AUC-PR.
+        X_train      : Feature matrix (pandas DataFrame), holdout already removed
         y_train      : Label vector   (numpy array), holdout already removed
         n_trials     : Number of Optuna trials (default 4)
         test_size    : Fraction of X_train used for internal test eval (default 0.2)
@@ -83,24 +81,25 @@ def run_fraud_tuning(
 
     Returns:
         dict with keys:
-            - 'model'       : final XGBClassifier trained on full X_train
-            - 'study'       : Optuna study object
-            - 'best_params' : best hyperparameters found
-            - 'cv_aucpr'    : mean amount-weighted AUC-PR across CV folds (best trial)
-            - 'cv_ks'       : mean KS statistic across CV folds (best trial)
-            - 'test_aucpr'  : amount-weighted AUC-PR on internal test split
-            - 'test_ks'     : KS statistic on internal test split
+            - 'model'           : final XGBClassifier trained on full X_train
+            - 'study'           : Optuna study object
+            - 'best_params'     : best hyperparameters found
+            - 'cv_aucpr'        : mean AUC-PR across CV folds (best trial)
+            - 'cv_ks'           : mean KS statistic across CV folds (best trial)
+            - 'test_aucpr'      : AUC-PR on internal test split
+            - 'test_aucpr_wtd'  : amount-weighted AUC-PR on internal test split (secondary)
+            - 'test_ks'         : KS statistic on internal test split
     """
 
     # ── FIX: convert y to numpy so train_test_split outputs are index-free ─
     if hasattr(y_train, "values"):
         y_train = y_train.values
 
-    # ── Extract transaction amounts for weighted AUC-PR ───────────────────
+    # ── Extract transaction amounts for secondary reporting metric ─────────
     if hasattr(X_train, "columns") and "amount" in X_train.columns:
         amounts = X_train["amount"].values
     else:
-        amounts = np.ones(len(y_train))  # fallback: uniform weights
+        amounts = np.ones(len(y_train))
 
     # ── 1. Internal train / test split (for tuning evaluation only) ───────
     X_tr, X_te, y_tr, y_te, amounts_tr, amounts_te = train_test_split(
@@ -122,7 +121,7 @@ def run_fraud_tuning(
     )
 
     study.optimize(
-        lambda trial: _objective(trial, X_tr, y_tr, amounts_tr),
+        lambda trial: _objective(trial, X_tr, y_tr),
         n_trials          = n_trials,
         show_progress_bar = True
     )
@@ -137,9 +136,10 @@ def run_fraud_tuning(
     )
     eval_model.fit(X_tr, y_tr)
 
-    test_probs  = eval_model.predict_proba(X_te)[:, 1]
-    test_aucpr  = average_precision_score(y_te, test_probs, sample_weight=amounts_te)
-    test_ks, _  = ks_2samp(test_probs[y_te == 1], test_probs[y_te == 0])
+    test_probs      = eval_model.predict_proba(X_te)[:, 1]
+    test_aucpr      = average_precision_score(y_te, test_probs)
+    test_aucpr_wtd  = average_precision_score(y_te, test_probs, sample_weight=amounts_te)
+    test_ks, _      = ks_2samp(test_probs[y_te == 1], test_probs[y_te == 0])
 
     # ── 4. Train final model on full X_train (no data left out) ──────────
     final_model = xgb.XGBClassifier(
@@ -152,22 +152,24 @@ def run_fraud_tuning(
 
     # ── 5. Print summary ──────────────────────────────────────────────────
     print("=" * 50)
-    print(f"  CV   Wtd AUC-PR (best trial) : {study.best_trial.value:.4f}")
-    print(f"  CV   KS Stat    (best trial) : {study.best_trial.user_attrs['ks_statistic']:.4f}")
-    print(f"  Internal Test Wtd AUC-PR     : {test_aucpr:.4f}")
-    print(f"  Internal Test KS Stat        : {test_ks:.4f}")
-    print(f"  Best Params                  : {best_params}")
+    print(f"  CV   AUC-PR  (best trial) : {study.best_trial.value:.4f}")
+    print(f"  CV   KS Stat (best trial) : {study.best_trial.user_attrs['ks_statistic']:.4f}")
+    print(f"  Internal Test AUC-PR      : {test_aucpr:.4f}")
+    print(f"  Internal Test Wtd AUC-PR  : {test_aucpr_wtd:.4f}  ← amount-weighted (secondary)")
+    print(f"  Internal Test KS Stat     : {test_ks:.4f}")
+    print(f"  Best Params               : {best_params}")
     print("=" * 50)
     print("  Final model retrained on full X_train.")
     print("  Apply to holdout externally in your prediction notebook.")
     print("=" * 50)
 
     return {
-        "model":       final_model,
-        "study":       study,
-        "best_params": best_params,
-        "cv_aucpr":    study.best_trial.value,
-        "cv_ks":       study.best_trial.user_attrs["ks_statistic"],
-        "test_aucpr":  test_aucpr,
-        "test_ks":     test_ks,
+        "model":          final_model,
+        "study":          study,
+        "best_params":    best_params,
+        "cv_aucpr":       study.best_trial.value,
+        "cv_ks":          study.best_trial.user_attrs["ks_statistic"],
+        "test_aucpr":     test_aucpr,
+        "test_aucpr_wtd": test_aucpr_wtd,
+        "test_ks":        test_ks,
     }
